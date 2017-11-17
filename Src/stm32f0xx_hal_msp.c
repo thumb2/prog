@@ -51,7 +51,15 @@
 
 extern void _Error_Handler(char *, int);
 /* USER CODE BEGIN 0 */
+/* Definition for TIMx clock resources */
+#define TIMx                             TIM3
+#define TIMx_CLK_ENABLE                  __HAL_RCC_TIM3_CLK_ENABLE
+#define TIMx_FORCE_RESET()               __HAL_RCC_USART3_FORCE_RESET()
+#define TIMx_RELEASE_RESET()             __HAL_RCC_USART3_RELEASE_RESET()
 
+/* Definition for TIMx's NVIC */
+#define TIMx_IRQn                        TIM3_IRQn
+#define TIMx_IRQHandler                  TIM3_IRQHandler
 /* USER CODE END 0 */
 /**
   * Initializes the Global MSP.
@@ -75,7 +83,16 @@ void HAL_MspInit(void)
   __HAL_REMAP_PIN_ENABLE(HAL_REMAP_PA11_PA12);
 
   /* USER CODE BEGIN MspInit 1 */
-
+	
+  /*##-6- Enable TIM peripherals Clock #######################################*/
+  TIMx_CLK_ENABLE();
+  
+  /*##-7- Configure the NVIC for TIMx ########################################*/
+  /* Set Interrupt Group Priority */ 
+  HAL_NVIC_SetPriority(TIMx_IRQn, 5, 0);
+  
+  /* Enable the TIMx global Interrupt */
+  HAL_NVIC_EnableIRQ(TIMx_IRQn);
   /* USER CODE END MspInit 1 */
 }
 

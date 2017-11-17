@@ -105,13 +105,14 @@ uint8_t rnw;
 uint8_t offset;
 uint8_t bit_cnt;
 uint8_t data_len;
-uint8_t data_buf[128];
+uint8_t read_data_buf[128];
+uint8_t write_data_buf[128];
 
 void delay_us(uint32_t Number)
 {
     volatile uint32_t i=0;
     while(Number--){
-        i = 40; while(i--);
+        i = 10; while(i--);
     }
 }
 
@@ -127,7 +128,7 @@ void bitbang_interface_write(int clk, int nothing, int tdi)
     } else {
         GPIOA->BRR = SWCLK;                
     }
-    delay_us(3);
+    delay_us(1);
 }
 int bitbang_interface_swdio_read()
 {
@@ -211,6 +212,7 @@ void process_usb(uint8_t* buf, uint32_t len)
             if (pi == 2) {
                 pi = 0;
                 state = STATE_DATLEN;
+                //write_flg = 1;
             }
             break;
         case STATE_DATLEN:
@@ -237,9 +239,9 @@ void process_usb(uint8_t* buf, uint32_t len)
         case STATE_DATA:
             ch = buf[i++];            
             if (pi & 0x01) {
-                data_buf[pi / 2] |= (ch > '9' ? ch - 'A' + 10 : ch - '0');
+                write_data_buf[pi / 2] |= (ch > '9' ? ch - 'A' + 10 : ch - '0');
             } else {
-                data_buf[pi / 2] = ((ch > '9' ? ch - 'A' + 10 : ch - '0') << 4);
+                write_data_buf[pi / 2] = ((ch > '9' ? ch - 'A' + 10 : ch - '0') << 4);
             }
             pi++;
             if (pi/2 == data_len) {
@@ -250,6 +252,11 @@ void process_usb(uint8_t* buf, uint32_t len)
         }
     }
 }
+
+
+#define GET_UPPER_HEX(x) ((((x) >> 4) & 0x0F) > 9 ? ((((x) >> 4) & 0x0F) - 10 + 'A') : ((((x) >> 4) & 0x0F) + '0'))
+#define GET_LOWER_HEX(x) (((x) & 0x0F) > 9 ? (((x) & 0x0F) - 10 + 'A') : (((x) & 0x0F) + '0'))
+
 /* USER CODE END 0 */
 
 int main(void)
@@ -286,7 +293,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-    programmer_init();
+  programmer_init();
   MX_USB_DEVICE_Init();
 
   /* USER CODE BEGIN 2 */
@@ -303,11 +310,13 @@ int main(void)
             if (data_len == 0) {
                 bitbang_exchange(rnw, NULL, offset, bit_cnt);
             } else {
-                bitbang_exchange(rnw, data_buf, offset, bit_cnt);                
+                bitbang_exchange(rnw, read_data_buf, offset, bit_cnt);                
             }
             for (i = 0; i < data_len; i++) {
-                sprintf(&(buf[0]), "%02X", data_buf[i]);
-                delay_us(2000);                                    
+//                sprintf(&(buf[0]), "%02X", read_data_buf[i]);
+                buf[0] = GET_UPPER_HEX(read_data_buf[i]);
+                buf[1] = GET_LOWER_HEX(read_data_buf[i]);                
+                //delay_us(2000);                                    
                 while(CDC_Transmit_FS((uint8_t *)buf, 2) != USBD_OK);                                    
             }
         }
@@ -316,42 +325,12 @@ int main(void)
             if (data_len == 0) {
                 bitbang_exchange(rnw, NULL, offset, bit_cnt);
             } else {
-                bitbang_exchange(rnw, data_buf, offset, bit_cnt);                
+                bitbang_exchange(rnw, write_data_buf, offset, bit_cnt);                
             }
-            sprintf(&(buf[0]), "%02X", bit_cnt); 
-            delay_us(2000);
+            buf[0] = GET_UPPER_HEX(bit_cnt); 
+            buf[1] = GET_LOWER_HEX(bit_cnt); 
             while(CDC_Transmit_FS((uint8_t *)buf, 2) != USBD_OK);
-            /*   
-            /* for (i = 0; i < 3; i++) { */
-            /*     switch(i) { */
-            /*     case 0: */
-            /*         sprintf(&(buf[0]), "%02X", bit_cnt); */
-            /*         delay_us(2000);                     */
-            /*         while(CDC_Transmit_FS((uint8_t *)buf, 2) != USBD_OK); */
-            /*         break; */
-            /*     case 1: */
-            /*         sprintf(&(buf[0]), "%02X", offset); */
-            /*         delay_us(2000);                                         */
-            /*         while(CDC_Transmit_FS((uint8_t *)buf, 2) != USBD_OK); */
-            /*         break; */
-            /*     case 2: */
-            /*         sprintf(&(buf[0]), "%02X", data_len); */
-            /*         delay_us(2000);                                         */
-            /*         while(CDC_Transmit_FS((uint8_t *)buf, 2) != USBD_OK); */
-            /*         break; */
-            /*     } */
-            /* } */
-            /* for (i = 0; i < data_len; i++) { */
-            /*     sprintf(&(buf[0]), "%02X", data_buf[i]); */
-            /*     delay_us(2000); */
-            /*     while(CDC_Transmit_FS((uint8_t *)buf, 2) != USBD_OK); */
-            /* } */
         }
-        i++;
-        if (i & 1) 
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_14, GPIO_PIN_RESET);
-        else
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_14, GPIO_PIN_SET);   
   /* USER CODE BEGIN 3 */
 
   }
@@ -427,10 +406,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5|GPIO_PIN_7|GPIO_PIN_14, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5|GPIO_PIN_7, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PA5 PA7 PA14 */
-  GPIO_InitStruct.Pin = GPIO_PIN_5|GPIO_PIN_7|GPIO_PIN_14;
+  GPIO_InitStruct.Pin = GPIO_PIN_5|GPIO_PIN_7;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;

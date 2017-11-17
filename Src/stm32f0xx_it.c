@@ -139,5 +139,11 @@ void USB_IRQHandler(void)
 
 /* USER CODE BEGIN 1 */
 
+extern TIM_HandleTypeDef TimHandle;
+/* USER CODE BEGIN 1 */
+void TIM3_IRQHandler(void)
+{
+  HAL_TIM_IRQHandler(&TimHandle);
+}
 /* USER CODE END 1 */
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

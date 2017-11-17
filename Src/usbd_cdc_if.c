@@ -3,45 +3,29 @@
   * @file           : usbd_cdc_if.c
   * @brief          :
   ******************************************************************************
-  * This notice applies to any and all portions of this file
-  * that are not between comment pairs USER CODE BEGIN and
-  * USER CODE END. Other portions of this file, whether 
-  * inserted by the user or by software development tools
-  * are owned by their respective copyright owners.
+  * COPYRIGHT(c) 2017 STMicroelectronics
   *
-  * Copyright (c) 2017 STMicroelectronics International N.V. 
-  * All rights reserved.
-  *
-  * Redistribution and use in source and binary forms, with or without 
-  * modification, are permitted, provided that the following conditions are met:
-  *
-  * 1. Redistribution of source code must retain the above copyright notice, 
-  *    this list of conditions and the following disclaimer.
+  * Redistribution and use in source and binary forms, with or without modification,
+  * are permitted provided that the following conditions are met:
+  * 1. Redistributions of source code must retain the above copyright notice,
+  * this list of conditions and the following disclaimer.
   * 2. Redistributions in binary form must reproduce the above copyright notice,
-  *    this list of conditions and the following disclaimer in the documentation
-  *    and/or other materials provided with the distribution.
-  * 3. Neither the name of STMicroelectronics nor the names of other 
-  *    contributors to this software may be used to endorse or promote products 
-  *    derived from this software without specific written permission.
-  * 4. This software, including modifications and/or derivative works of this 
-  *    software, must execute solely and exclusively on microcontroller or
-  *    microprocessor devices manufactured by or for STMicroelectronics.
-  * 5. Redistribution and use of this software other than as permitted under 
-  *    this license is void and will automatically terminate your rights under 
-  *    this license. 
+  * this list of conditions and the following disclaimer in the documentation
+  * and/or other materials provided with the distribution.
+  * 3. Neither the name of STMicroelectronics nor the names of its contributors
+  * may be used to endorse or promote products derived from this software
+  * without specific prior written permission.
   *
-  * THIS SOFTWARE IS PROVIDED BY STMICROELECTRONICS AND CONTRIBUTORS "AS IS" 
-  * AND ANY EXPRESS, IMPLIED OR STATUTORY WARRANTIES, INCLUDING, BUT NOT 
-  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A 
-  * PARTICULAR PURPOSE AND NON-INFRINGEMENT OF THIRD PARTY INTELLECTUAL PROPERTY
-  * RIGHTS ARE DISCLAIMED TO THE FULLEST EXTENT PERMITTED BY LAW. IN NO EVENT 
-  * SHALL STMICROELECTRONICS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-  * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-  * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, 
-  * OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF 
-  * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
-  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
-  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+  * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+  * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+  * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   *
   ******************************************************************************
 */
@@ -103,6 +87,18 @@ uint8_t UserRxBufferFS[APP_RX_DATA_SIZE];
 /* Send Data over USB CDC are stored in this buffer       */
 uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
 
+uint32_t BuffLength;
+uint32_t UserTxBufPtrIn = 0;/* Increment this pointer or roll it back to
+                               start address when data are received over USART */
+uint32_t UserTxBufPtrOut = 0; /* Increment this pointer or roll it back to
+                                 start address when data are sent over USB */
+
+/* USB handler declaration */
+/* Handle for USB Full Speed IP */
+  USBD_HandleTypeDef  *hUsbDevice_0;
+
+/* TIM handler declaration */
+TIM_HandleTypeDef    TimHandle;
 /* USER CODE BEGIN PRIVATE_VARIABLES */
 /* USER CODE END PRIVATE_VARIABLES */
 
@@ -114,6 +110,7 @@ uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
   * @{
   */ 
   extern USBD_HandleTypeDef hUsbDeviceFS;
+
 /* USER CODE BEGIN EXPORTED_VARIABLES */
 /* USER CODE END EXPORTED_VARIABLES */
 
@@ -151,12 +148,45 @@ USBD_CDC_ItfTypeDef USBD_Interface_fops_FS =
   * @param  None
   * @retval Result of the operation: USBD_OK if all operations are OK else USBD_FAIL
   */
+static void TIM_Config(void)
+{  
+  /* Set TIMx instance */
+  TimHandle.Instance = TIMx;
+  
+  /* Initialize TIM3 peripheral as follow:
+       + Period = 10000 - 1
+       + Prescaler = ((SystemCoreClock/2)/10000) - 1
+       + ClockDivision = 0
+       + Counter direction = Up
+  */
+  TimHandle.Init.Period = (CDC_POLLING_INTERVAL*500) - 1;
+  TimHandle.Init.Prescaler = 48-1;
+  TimHandle.Init.ClockDivision = 0;
+  TimHandle.Init.CounterMode = TIM_COUNTERMODE_UP;
+  TimHandle.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if(HAL_TIM_Base_Init(&TimHandle) != HAL_OK)
+  {
+    /* Initialization Error */
+//    Error_Handler();
+  }
+}
 static int8_t CDC_Init_FS(void)
-{ 
+{
+  hUsbDevice_0 = &hUsbDeviceFS;
   /* USER CODE BEGIN 3 */ 
+	  /*##-3- Configure the TIM Base generation  #################################*/
+  TIM_Config();
+  
+  /*##-4- Start the TIM Base generation in interrupt mode ####################*/
+  /* Start Channel1 */
+  if(HAL_TIM_Base_Start_IT(&TimHandle) != HAL_OK)
+  {
+    /* Starting Error */
+//    Error_Handler();
+  }
   /* Set Application Buffers */
-  USBD_CDC_SetTxBuffer(&hUsbDeviceFS, UserTxBufferFS, 0);
-  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, UserRxBufferFS);
+  USBD_CDC_SetTxBuffer(hUsbDevice_0, UserTxBufferFS, 0);
+  USBD_CDC_SetRxBuffer(hUsbDevice_0, UserRxBufferFS);
   return (USBD_OK);
   /* USER CODE END 3 */ 
 }
@@ -249,6 +279,43 @@ static int8_t CDC_Control_FS  (uint8_t cmd, uint8_t* pbuf, uint16_t length)
 }
 
 /**
+  * @brief  TIM period elapsed callback
+  * @param  htim: TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  uint32_t buffptr;
+  uint32_t buffsize;
+  
+  if(UserTxBufPtrOut != UserTxBufPtrIn)
+  {
+    if(UserTxBufPtrOut > UserTxBufPtrIn) /* rollback */
+    {
+      buffsize = APP_RX_DATA_SIZE - UserTxBufPtrOut;
+    }
+    else 
+    {
+      buffsize = UserTxBufPtrIn - UserTxBufPtrOut;
+    }
+    
+    buffptr = UserTxBufPtrOut;
+    
+    USBD_CDC_SetTxBuffer(hUsbDevice_0, (uint8_t*)&UserTxBufferFS[buffptr], buffsize);
+    
+    if(USBD_CDC_TransmitPacket(hUsbDevice_0) == USBD_OK)
+    {
+      UserTxBufPtrOut += buffsize;
+      if (UserTxBufPtrOut == APP_RX_DATA_SIZE)
+      {
+        UserTxBufPtrOut = 0;
+      }
+    }
+  }
+}
+
+
+/**
   * @brief  CDC_Receive_FS
   *         Data received over USB OUT endpoint are sent over CDC interface 
   *         through this function.
@@ -268,9 +335,8 @@ static int8_t CDC_Receive_FS (uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
     process_usb(Buf, *Len);
-  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
-  USBD_CDC_ReceivePacket(&hUsbDeviceFS);
-  return (USBD_OK);
+    USBD_CDC_ReceivePacket(hUsbDevice_0);
+    return (USBD_OK);
   /* USER CODE END 6 */ 
 }
 
@@ -287,16 +353,20 @@ static int8_t CDC_Receive_FS (uint8_t* Buf, uint32_t *Len)
   */
 uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
 {
-  uint8_t result = USBD_OK;
-  /* USER CODE BEGIN 7 */ 
-  USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
-  if (hcdc->TxState != 0){
-    return USBD_BUSY;
-  }
-  USBD_CDC_SetTxBuffer(&hUsbDeviceFS, Buf, Len);
-  result = USBD_CDC_TransmitPacket(&hUsbDeviceFS);
-  /* USER CODE END 7 */ 
-  return result;
+    uint16_t i;
+    if ((UserTxBufPtrOut + APP_RX_DATA_SIZE - 1 - UserTxBufPtrIn) & (APP_RX_DATA_SIZE - 1) <= Len) return USBD_BUSY;
+    for (i = 0; i < Len; i++){
+        UserTxBufferFS[UserTxBufPtrIn] = Buf[i];
+        /* Increment Index for buffer writing */
+        UserTxBufPtrIn++;
+  
+        /* To avoid buffer overflow */
+        if(UserTxBufPtrIn == APP_RX_DATA_SIZE)
+        {
+            UserTxBufPtrIn = 0;
+        }
+    }
+    return USBD_OK;
 }
 
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_IMPLEMENTATION */
@@ -305,10 +375,4 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
 /**
   * @}
   */ 
-
-/**
-  * @}
-  */ 
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
 
